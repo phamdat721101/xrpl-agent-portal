@@ -1,0 +1,163 @@
+'use client';
+
+import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { usePortal } from '@/lib/portalContext';
+import { usePortalAuth } from './PortalAuthProvider';
+import { TrainingStagePill, MatrixChip } from '@/components/common/StatusBadge';
+import { buildAgentConnectionPrompt } from '@/lib/agentConnectionPrompt';
+import { Bot, ArrowRight, Moon, Radio, AlertCircle, Plus, X, Copy, Activity } from 'lucide-react';
+
+export default function AgentStudioPage() {
+  const { agents, agentActivity, dreamStatusByAgent, usageSummaries, knowledgeSyncByAgent, registerAgent, claimAgent, rotateAgentKey, gatewayOnline } = usePortal();
+  const { authenticated, walletAddress } = usePortalAuth();
+  const [showConnect, setShowConnect] = useState(false);
+  const [displayName, setDisplayName] = useState('OpenX Research Agent');
+  const [hostType, setHostType] = useState<'kiro-cli' | 'claude-code' | 'adk-python' | 'custom'>('adk-python');
+  const [model, setModel] = useState('gemini-3.5');
+  const [registration, setRegistration] = useState<{ agentId: string; agentKey?: string; restored?: boolean; rotated?: boolean } | null>(null);
+  const [registering, setRegistering] = useState(false);
+  const [restoreAgentId, setRestoreAgentId] = useState('');
+  const [restoreAgentKey, setRestoreAgentKey] = useState('');
+  const [rotateAgentId, setRotateAgentId] = useState('');
+  const [rotateCurrentKey, setRotateCurrentKey] = useState('');
+  const [rotating, setRotating] = useState(false);
+  const [copiedRegistrationValue, setCopiedRegistrationValue] = useState<'key' | 'prompt' | null>(null);
+  const fleet = useMemo(() => Object.values(agentActivity), [agentActivity]);
+  const running = fleet.filter((item) => item.activity.current_task).length;
+  const online = fleet.filter((item) => item.state === 'online').length;
+  const linked = agents.filter((agent) => Boolean(agent.hypermove_dream_agent_id)).length;
+
+  const connectAgent = async () => {
+    if (!displayName.trim()) return;
+    setRegistering(true);
+    const result = await registerAgent({ display_name: displayName, host_type: hostType, model, capabilities: ['telemetry', 'usage-events', 'task-lifecycle'], ...(authenticated && walletAddress ? { owner_address: walletAddress, wallet_address: walletAddress } : {}) });
+    setRegistering(false);
+    if (result.ok && result.agentId) setRegistration({ agentId: result.agentId, agentKey: result.agentKey });
+  };
+
+  const restoreAgent = async () => {
+    if (!restoreAgentId.trim() || !restoreAgentKey.trim()) return;
+    setRegistering(true);
+    const result = await claimAgent(restoreAgentId.trim(), restoreAgentKey.trim());
+    setRegistering(false);
+    if (result.ok && result.agentId) setRegistration({ agentId: result.agentId, restored: true });
+  };
+
+  const handleRotateAgent = async () => {
+    if (!rotateAgentId.trim()) return;
+    setRotating(true);
+    const result = await rotateAgentKey(rotateAgentId.trim(), rotateCurrentKey.trim() || undefined);
+    setRotating(false);
+    if (result.ok && result.agentKey) setRegistration({ agentId: rotateAgentId.trim(), agentKey: result.agentKey, rotated: true });
+  };
+
+  const copyRegistrationValue = (value: string, kind: 'key' | 'prompt') => {
+    void navigator.clipboard.writeText(value);
+    setCopiedRegistrationValue(kind);
+    setTimeout(() => setCopiedRegistrationValue(null), 2000);
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-300">
+      {/* Top Banner & Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="font-headline text-2xl font-extrabold text-on-surface tracking-tight">
+            Agent Studio Hub
+          </h1>
+          <p className="text-xs text-on-surface-variant mt-1">
+            Operator management console for your active OpenX autonomous agents
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <MatrixChip label="Cryptographically Verified" />
+          <button onClick={() => { setRegistration(null); setShowConnect(true); }} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-on-primary"><Plus className="h-3.5 w-3.5" />Connect Agent</button>
+        </div>
+      </div>
+
+      <section className="rounded-2xl border border-outline-variant/30 bg-surface-container-low p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" /><h2 className="font-headline text-base font-bold text-on-surface">Fleet Evidence</h2><span className="rounded bg-surface-container-high px-2 py-0.5 font-mono text-[10px] text-on-surface-variant">concept + live</span></div><p className="mt-1 text-xs text-on-surface-variant">Operational indicators; only Gateway-derived values are verified.</p></div><div className="flex flex-wrap gap-2 text-[11px] font-mono"><span className="rounded bg-primary/10 px-2 py-1 text-primary">{running} active tasks</span><span className="rounded bg-secondary/10 px-2 py-1 text-secondary">{online} online</span><span className="rounded bg-secondary/10 px-2 py-1 text-secondary">{linked} Dream linked</span><span className="rounded bg-surface-container-high px-2 py-1 text-on-surface-variant">{gatewayOnline ? 'Gateway verified' : 'Gateway unavailable'}</span></div></div>
+        {fleet.length > 0 ? <div className="mt-4 divide-y divide-outline-variant/20">{fleet.slice(0, 5).map((item) => { const agent = agents.find((entry) => entry.id === item.agent_id); const task = item.activity.current_task || item.activity.latest_task; return <div key={item.agent_id} className="flex items-center justify-between gap-3 py-3 text-xs"><div className="min-w-0"><p className="truncate font-semibold text-on-surface">{agent?.display_name || item.agent_id}</p><p className="truncate text-on-surface-variant">{task?.title || (item.state === 'online' ? 'Idle — waiting for a task' : 'No heartbeat received')}</p></div><div className="shrink-0 text-right font-mono"><p className={task?.state === 'running' ? 'text-primary' : item.state === 'online' ? 'text-secondary' : 'text-on-surface-variant'}>{task?.state || item.state}</p><p className="text-[10px] text-on-surface-variant">{task?.phase || '—'}</p></div></div>; })}</div> : <div className="mt-4 rounded-xl border border-dashed border-outline-variant/40 p-5 text-center"><p className="text-sm font-semibold text-on-surface">No agent heartbeat received</p><p className="mt-1 text-xs text-on-surface-variant">Connect an agent here, then run its sync scheduler or task worker to report live activity.</p><button onClick={() => setShowConnect(true)} className="mt-3 text-xs font-bold text-primary">Connect an agent</button></div>}
+      </section>
+
+      {/* Agents Grid Header */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-headline text-lg font-bold text-on-surface flex items-center gap-2">
+            <Bot className="h-5 w-5 text-primary" />
+            <span>Your Managed Agents ({agents.length})</span>
+          </h2>
+          <span className="text-xs text-on-surface-variant font-mono">
+            Select an agent to manage skills, operating rules, and Dream Cycle telemetry
+          </span>
+        </div>
+
+        {/* Agent Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {agents.map((agent) => {
+            const hasDreamLinked = !!agent.hypermove_dream_agent_id;
+            const activity = agentActivity[agent.id];
+            const dreamRun = dreamStatusByAgent[agent.id];
+            const task = activity?.activity.current_task || activity?.activity.latest_task;
+            const usage = usageSummaries.find((summary) => summary.agent_id === agent.id);
+            const knowledge = knowledgeSyncByAgent[agent.id];
+
+            return (
+              <Link
+                key={agent.id}
+                href={`/${agent.id}/skills`}
+                className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-low p-5 transition-all duration-300 hover:border-primary/50 hover:shadow-[0_0_25px_rgba(0,240,255,0.12)] agent-card-border"
+              >
+                <div>
+                  {/* Top Bar: Stage & Dream Tag */}
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <TrainingStagePill stage={agent.training_stage} />
+                    {hasDreamLinked ? (
+                      <span className="inline-flex items-center gap-1 rounded bg-secondary/15 px-2 py-0.5 font-mono text-[10px] font-bold text-secondary border border-secondary/30">
+                        <Moon className="h-2.5 w-2.5" /> {dreamRun?.status === 'completed' ? 'Dream completed' : dreamRun?.status === 'running' ? 'Dream running' : dreamRun?.status === 'payment_required' ? 'Dream payment required' : 'Dream linked'}
+                      </span>
+                    ) : (
+                      <span className="rounded bg-surface-container-high px-2 py-0.5 font-mono text-[10px] text-on-surface-variant">
+                        Dream not configured
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Agent Display Name */}
+                  <h3 className="font-headline text-base font-bold text-on-surface group-hover:text-primary transition-colors">
+                    {agent.display_name}
+                  </h3>
+                  <div className="mt-4 rounded-xl border border-outline-variant/20 bg-surface-container-high/50 p-3">
+                    <div className="flex items-center justify-between gap-2 text-[10px] font-mono uppercase tracking-wide">
+                      <span className={activity?.state === 'online' ? 'text-secondary' : 'text-on-surface-variant'}>
+                        {activity?.state === 'online' ? <Radio className="mr-1 inline h-3 w-3 animate-pulse" /> : <AlertCircle className="mr-1 inline h-3 w-3" />}
+                        {activity?.state || 'not connected'}
+                      </span>
+                      {task && <span className={task.state === 'running' ? 'text-primary' : task.state === 'failed' ? 'text-error' : 'text-secondary'}>{task.state}</span>}
+                    </div>
+                    {task ? <div className="mt-2"><p className="truncate text-xs font-semibold text-on-surface">{task.title || task.task_id}</p><p className="mt-1 truncate text-[11px] text-on-surface-variant">{task.phase || 'Awaiting next phase'} · {task.model}</p>{task.tools_used.length > 0 && <p className="mt-1 truncate text-[10px] text-agent-accent">{task.tools_used.join(', ')}</p>}</div> : <p className="mt-2 text-[11px] text-on-surface-variant">{agent.connection_state === 'registered' ? 'Registered — awaiting first heartbeat.' : 'No task activity received yet.'}</p>}
+                  </div>
+                  {dreamRun?.status === 'completed' && <p className="mt-2 text-[10px] font-mono text-secondary">{dreamRun.source === 'hypermove_sync' ? 'HyperMove result synced' : 'Gateway Dream completed'}{dreamRun.completed_at ? ` · ${new Date(dreamRun.completed_at).toLocaleString()}` : ''}</p>}
+                  <p className="text-xs text-on-surface-variant mt-3 line-clamp-2 leading-relaxed">{agent.description}</p>
+                  {usage && <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-on-surface-variant"><span className="text-primary">{usage.plan_id}</span><span>{(usage.input_tokens + usage.output_tokens).toLocaleString()} tokens</span><span>{usage.tool_calls} tools</span><span>{usage.skill_calls} skills</span></div>}
+                  {knowledge && <p className={`mt-2 text-[10px] font-mono ${knowledge.state === 'degraded' ? 'text-error' : knowledge.state === 'complete' ? 'text-secondary' : 'text-primary'}`}>0G evidence sync · {knowledge.state} · {knowledge.uploaded_records}/{knowledge.total_records} archived</p>}
+                </div>
+
+                {/* Action Footer */}
+                <div className="mt-5 pt-4 border-t border-outline-variant/20">
+                  <div className="flex items-center justify-between text-xs font-bold text-primary group-hover:translate-x-0.5 transition-transform">
+                    <span>Manage Agent</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+      {showConnect && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="w-full max-w-2xl rounded-2xl border border-outline-variant/30 bg-surface-container-low p-6 shadow-2xl"><div className="flex items-start justify-between"><div><h2 className="font-headline text-lg font-bold text-on-surface">Connect Agent</h2><p className="mt-1 text-xs text-on-surface-variant">Register once, retain the ID and key in the agent host, then use the generated prompt to verify its first safe data sync.</p></div><button onClick={() => setShowConnect(false)}><X className="h-5 w-5 text-on-surface-variant" /></button></div>{registration ? <div className="mt-5 space-y-4"><p className="text-xs text-secondary">{registration.restored ? 'Agent restored. Resume its local sync scheduler; no new registration was created.' : registration.rotated ? 'Agent key rotated successfully! Update OPENX_AGENT_KEY in your agent environment immediately.' : 'Agent registered. Save this key now; it is shown once.'}</p><code className="block break-all rounded-xl bg-surface-container-high p-3 text-xs text-on-surface">OPENX_AGENT_ID={registration.agentId}{registration.agentKey ? `\nOPENX_AGENT_KEY=${registration.agentKey}` : ''}</code>{registration.agentKey && <button onClick={() => copyRegistrationValue(registration.agentKey!, 'key')} className="inline-flex items-center gap-1 text-xs font-bold text-primary"><Copy className="h-3.5 w-3.5" />{copiedRegistrationValue === 'key' ? 'Key copied' : 'Copy one-time key'}</button>}<div className="rounded-xl border border-outline-variant/30 bg-surface-container-high/50 p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-on-surface">Agent connection & data-sync prompt</p><p className="mt-1 text-[11px] text-on-surface-variant">This prompt includes the agent ID and Gateway URL, never the one-time key, and requires a verified first task timeline.</p></div><button onClick={() => copyRegistrationValue(buildAgentConnectionPrompt({ agentId: registration.agentId }), 'prompt')} className="shrink-0 inline-flex items-center gap-1 text-xs font-bold text-primary"><Copy className="h-3.5 w-3.5" />{copiedRegistrationValue === 'prompt' ? 'Prompt copied' : 'Copy sync prompt'}</button></div><pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-container-lowest p-3 font-mono text-[10px] text-on-surface">{buildAgentConnectionPrompt({ agentId: registration.agentId })}</pre></div><p className="text-[11px] text-on-surface-variant">Run the copied prompt, then schedule <code>python3 agent/sync_agent.py</code> every five minutes and the agent worker for live task updates. <Link href="/docs" className="font-bold text-primary">Open reusable integration docs</Link>.</p></div> : <div className="mt-5 space-y-5"><div className="space-y-3"><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="w-full rounded-xl border border-outline-variant/40 bg-surface-container-high p-3 text-sm text-on-surface" placeholder="Agent name" /><div className="grid grid-cols-2 gap-3"><select value={hostType} onChange={(event) => setHostType(event.target.value as typeof hostType)} className="rounded-xl border border-outline-variant/40 bg-surface-container-high p-3 text-sm text-on-surface"><option value="adk-python">ADK Python</option><option value="claude-code">Claude Code</option><option value="kiro-cli">Kiro CLI</option><option value="custom">Custom</option></select><input value={model} onChange={(event) => setModel(event.target.value)} className="rounded-xl border border-outline-variant/40 bg-surface-container-high p-3 text-sm text-on-surface" placeholder="Model" /></div><button disabled={!gatewayOnline || registering || !displayName.trim()} onClick={connectAgent} className="w-full rounded-xl bg-primary px-4 py-3 text-xs font-bold text-on-primary disabled:opacity-50">{registering ? 'Registering…' : 'Register and issue key'}</button></div><div className="border-t border-outline-variant/20 pt-4"><p className="text-xs font-bold text-on-surface">Restore an existing agent</p><p className="mt-1 text-[11px] text-on-surface-variant">Use the agent ID and key already stored by a reinstalled host. This does not create a duplicate.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><input value={restoreAgentId} onChange={(event) => setRestoreAgentId(event.target.value)} className="rounded-xl border border-outline-variant/40 bg-surface-container-high p-3 text-sm text-on-surface" placeholder="OPENX_AGENT_ID" /><input value={restoreAgentKey} onChange={(event) => setRestoreAgentKey(event.target.value)} className="rounded-xl border border-outline-variant/40 bg-surface-container-high p-3 text-sm text-on-surface" placeholder="OPENX_AGENT_KEY" type="password" /></div><button disabled={!gatewayOnline || registering || !restoreAgentId.trim() || !restoreAgentKey.trim()} onClick={restoreAgent} className="mt-3 rounded-lg border border-primary/50 px-4 py-2 text-xs font-bold text-primary disabled:opacity-50">{registering ? 'Restoring…' : 'Restore existing agent'}</button></div><div className="border-t border-outline-variant/20 pt-4"><p className="text-xs font-bold text-on-surface">Rotate agent key</p><p className="mt-1 text-[11px] text-on-surface-variant">Generate a new one-time key and immediately invalidate the old credential.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><input value={rotateAgentId} onChange={(event) => setRotateAgentId(event.target.value)} className="rounded-xl border border-outline-variant/40 bg-surface-container-high p-3 text-sm text-on-surface" placeholder="OPENX_AGENT_ID" /><input value={rotateCurrentKey} onChange={(event) => setRotateCurrentKey(event.target.value)} className="rounded-xl border border-outline-variant/40 bg-surface-container-high p-3 text-sm text-on-surface" placeholder="Current OPENX_AGENT_KEY" type="password" /></div><button disabled={!gatewayOnline || rotating || !rotateAgentId.trim()} onClick={handleRotateAgent} className="mt-3 rounded-lg border border-agent-accent/60 px-4 py-2 text-xs font-bold text-agent-accent hover:bg-agent-accent/10 disabled:opacity-50">{rotating ? 'Rotating…' : 'Rotate key'}</button></div></div>}</div></div>}
+    </div>
+  );
+}

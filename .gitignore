@@ -1,0 +1,32 @@
+# Dependencies, compilation, and test output
+**/node_modules/
+portal/.next/
+gateway/dist/
+**/build/
+**/coverage/
+portal/test-results/
+**/*.tsbuildinfo
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+
+# Local configuration and credentials — keep examples tracked
+.env
+.env.*
+!.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*credential*.json
+**/*secret*.json
+
+# Local runtime state
+.openx/
+.nim/
+.gstack/
+.DS_Store
+
+# Generated or local project material
+docs/*
+gateway/docs/state/

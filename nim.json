@@ -1,0 +1,98 @@
+{
+  "$schema": "https://raw.githubusercontent.com/phamdat721101/nim-skill/main/schema/harness-config.json",
+  "harness": {
+    "enforce": {
+      "enabled": true,
+      "mode": "strict",
+      "strategies": ["nonempty", "json", "schema", "test", "lint", "evidence"]
+    },
+    "memory": {
+      "enabled": true,
+      "cacheFile": ".nim/memory-cache.jsonl",
+      "ttlSeconds": 86400
+    },
+    "monitor": {
+      "enabled": true,
+      "sinks": ["console", "file"],
+      "traceFile": ".nim/traces.jsonl"
+    },
+    "guard": {
+      "enabled": true,
+      "allowlist": ["*"],
+      "costCapUsd": 5.0
+    },
+    "lessons": {
+      "enabled": true,
+      "logFile": ".nim/lessons.jsonl"
+    },
+    "logcompact": {
+      "enabled": true,
+      "strategy": "errors-only",
+      "maxLines": 50,
+      "escalateOnEmpty": true
+    }
+  },
+  "workspace": {
+    "name": "openx-deep-research-analyst",
+    "stack": ["nextjs", "react", "typescript", "tailwind", "python", "node", "xrpl", "gemini"],
+    "offStackSignalTerms": {
+      "unrelated_chains_and_dashboards": [
+        "Status Network",
+        "Karma Gasless",
+        "Liventy",
+        "linea_estimateGas",
+        "Arbitrum One",
+        "Fleet Cockpit",
+        "Fleet Picker"
+      ]
+    },
+    "mode": "strict",
+    "livenessFile": "docs/state/active_session.md",
+    "livenessCadence": "daily",
+    "strictPlanMode": {
+      "enabled": true,
+      "maxConcurrentActive": 1,
+      "requireOverrideOnReopen": true
+    },
+    "deliver": {
+      "mode": "strict",
+      "briefDir": "docs/features",
+      "requireWorkrule": true,
+      "profiles": {
+        "dream-npayment-xrpl-settlement": {
+          "contract": ".nim/deliver/dream-npayment-xrpl-settlement-contract.json",
+          "configFiles": ["gateway/.env.example"],
+          "commands": ["npm --prefix gateway test", "npm --prefix gateway run build", "npm --prefix portal run typecheck"],
+          "evidenceFile": ".nim/deliver/dream-npayment-xrpl-settlement-evidence.json"
+        },
+        "webmcp-gpt-public-release": {
+          "contract": ".nim/deliver/webmcp-gpt-public-release-contract.json",
+          "configFiles": ["portal/.env.local"],
+          "commands": ["npm --prefix gateway test -- --run tests/webmcp.test.ts", "npm --prefix gateway run build", "npm --prefix portal run typecheck", "npm --prefix portal run build", "cd portal && npx playwright test tests/e2e/webmcp-site-tools.spec.ts --workers=1"],
+          "evidenceFile": ".nim/deliver/webmcp-gpt-public-release-evidence.json"
+        },
+        "0g-rem-memory-dashboard": {
+          "contract": ".nim/deliver/0g-rem-memory-dashboard-contract.json",
+          "configFiles": ["gateway/.env.example"],
+          "commands": ["npm --prefix gateway test", "npm --prefix gateway run build", "npm --prefix portal run typecheck", "npm --prefix portal run build", "npm --prefix portal run test:e2e:dream-cycle"],
+          "evidenceFile": ".nim/deliver/0g-rem-memory-dashboard-evidence.json"
+        },
+        "agent-working-log-sync": {
+          "contract": ".nim/deliver/agent-working-log-contract.json",
+          "configFiles": ["gateway/.env.example", "agent/.env.example"],
+          "commands": ["cd agent && python3 -m unittest discover -s tests -p 'test_*.py'", "npm --prefix gateway test -- --run tests/agentIngestion.test.ts", "npm --prefix gateway run build", "npm --prefix portal run typecheck"],
+          "evidenceFile": ".nim/deliver/agent-working-log-evidence.json"
+        }
+      },
+      "e2e": {
+        "enabled": true,
+        "featureId": "dream-npayment-xrpl-settlement",
+        "mapDir": "docs/features",
+        "codePaths": ["gateway/src/", "gateway/tests/", "portal/src/", "portal/tests/"]
+      }
+    }
+  },
+  "workrule": {
+    "logFile": ".nim/agent-support-log.md"
+  }
+}
