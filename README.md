@@ -1,10 +1,35 @@
 # OpenX Agent Portal
 
-OpenX Agent Portal is a local management studio for connected AI agents. It pairs a Next.js Portal with a TypeScript Gateway and optional Python agent worker.
+OpenX Agent Portal is an AI-native management studio and operator control plane for autonomous AI agents, pairing an Express Gateway sidecar (`:7411`), a Next.js Operator Portal (`:3010`), and an autonomous agent worker.
 
-It lets operators register agents, inspect skills and usage, and follow safe task telemetry and working-log updates. XRPL RLUSD analytics remain an on-demand, separate view.
+## Portal Management Functions
 
-## Run locally
+- **Manage & Track Working Tasks:** Real-time visibility into agent task execution, progressive phases, working logs, and cryptographic artifact delivery.
+- **Credit, Quota & Usage Metering:** Transparent tracking of per-agent token consumption, model pricing tiers, quota policies, and credit allocations.
+- **Dream-Cycle & REM Cognitive Lessons:** Extract, replay, and retain strategic lessons learned from the agent's REM reflection loops for recursive self-improvement.
+- **Pay-to-Use via XRPL Settlement & T54:** Auditable, on-chain micropayment settlement on the XRP Ledger (RLUSD) with T54 routing policies and wallet safety limits.
+
+## AI-Native Architecture & Code Structure
+
+```text
+xrpl-openx-portal/
+├── agent/                  # Autonomous Agent Runtime
+│   ├── main.py             # Agent execution entrypoint & task loops
+│   ├── sync_agent.py       # Telemetry, heartbeats & working-log sync
+│   └── gateway_client.py   # Gateway client (tasks, telemetry, settlements)
+├── gateway/                # Control Plane Sidecar (:7411)
+│   ├── src/server.ts       # REST & telemetry endpoints
+│   ├── src/db/             # Embedded SQLite schema & task/settlement ledgers
+│   └── src/services/       # Agent registry, XRPL native settlement, dream gateway
+├── portal/                 # Operator Studio (:3010)
+│   ├── src/app/            # Next.js App Router (Studio hub, agent tabs, docs)
+│   ├── src/components/     # Dashboards (Dream-Cycle, Tasks, Skills, Wallet)
+│   └── src/lib/            # Portal context, auth & gateway RPC client
+├── docs/                   # System maps, architectural specs & PRDs
+└── .nim/                   # Reliability harness: lessons store & delivery contracts
+```
+
+## Run Locally
 
 Requirements: Node.js 18+ and npm. Python 3.11+ is needed only for the optional agent worker.
 
@@ -20,16 +45,17 @@ npm --prefix gateway run dev
 npm --prefix portal run dev
 ```
 
-Open the Portal at http://localhost:3010. The Gateway health endpoint is http://localhost:7411/health.
+- Portal: http://localhost:3010
+- Gateway health: http://localhost:7411/health
 
-To run the example connected agent, copy its environment template, store `OPENX_AGENT_KEY` only in your local secret manager, then run:
+To run the example connected agent, copy its environment template, set `OPENX_AGENT_KEY`, and run:
 
 ```bash
 cd agent
 python3 main.py
 ```
 
-`./start.sh` is an alternative production-style launcher: it installs missing dependencies, builds both services, and replaces processes already using ports 3010 and 7411.
+*Alternative launcher:* `./start.sh` installs missing dependencies, builds both services, and replaces processes on ports 3010 and 7411.
 
 ## Checks
 
