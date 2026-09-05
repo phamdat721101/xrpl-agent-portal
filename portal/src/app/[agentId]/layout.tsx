@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { usePortal } from '@/lib/portalContext';
 import { TrainingStagePill } from '@/components/common/StatusBadge';
-import { ArrowLeft, Wrench, Sliders, Moon, Bot, ShieldCheck, ListChecks, ChartNoAxesCombined } from 'lucide-react';
+import { ArrowLeft, Wrench, Sliders, Moon, Bot, ShieldCheck, ListChecks } from 'lucide-react';
 
 interface AgentLayoutProps {
   params: { agentId: string };
@@ -23,7 +23,6 @@ export default function AgentLayout({ params, children }: AgentLayoutProps) {
     { slug: 'tasks', label: 'Tasks & Deliverables', icon: ListChecks },
     { slug: 'skills', label: 'Skills & Tools', icon: Wrench },
     { slug: 'credit-model', label: 'Credit Model & Pricing', icon: Sliders },
-    { slug: 'rlusd', label: 'XRPL RLUSD', icon: ChartNoAxesCombined },
     { slug: 'dream-cycle', label: 'Dream Cycle Bridge', icon: Moon },
     { slug: 'auditor', label: 'Wallet & Auditor', icon: ShieldCheck },
   ];

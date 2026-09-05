@@ -178,6 +178,19 @@ const DreamTriggerSchema = z.object({ preset: z.enum(['frugal', 'balanced', 'tho
 const XrplSettlementProofSchema = z.object({ transaction_hash: z.string().regex(/^[A-Fa-f0-9]{64}$/), expected_amount: z.string().regex(/^\d+(\.\d+)?$/) }).strict();
 const DreamCredentialSchema = z.object({ token: z.string().trim().min(20).max(4096) });
 const DreamSetupSchema = z.object({ token: z.string().trim().min(20).max(4096).optional(), hypermove_agent_id: z.string().trim().min(1).max(160).optional() }).strict();
+const AgentSettlementSyncSchema = z.object({
+  transaction_hash: z.string().regex(/^[A-Fa-f0-9]{64}$/, 'Invalid 64-character transaction hash'),
+  quote_id: z.string().min(1),
+  amount: z.string().min(1),
+  currency: z.string().default('RLUSD'),
+  merchant_address: z.string().regex(/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/, 'Invalid XRPL merchant address'),
+  facilitator_node: z.string().min(1),
+  status: z.enum(['settled', 'pending', 'failed', 'validated']).default('settled'),
+  network: z.string().optional(),
+  run_id: z.string().optional(),
+  settled_at: z.string().optional(),
+  error_reason: z.string().optional(),
+}).strict();
 const SkillStatusSchema = z.object({ status: z.enum(['active', 'in_audit', 'deprecated']) }).strict();
 const AuditorChatSchema = z.object({ message: z.string().trim().min(1).max(1200), client_request_id: z.string().trim().min(1).max(120).optional() }).strict();
 const WebMcpNavigationSchema = z.object({ section: z.enum(['studio', 'skills', 'credit-model', 'dream-cycle', 'auditor']) }).strict();
@@ -747,9 +760,43 @@ app.get('/v1/agents/:agentId/tasks', (req: Request, res: Response): void => { if
 app.get('/v1/agents/:agentId/tasks/:taskId', (req: Request, res: Response): void => { const task = agentIngestionStore.getStoredTaskRun(req.params.agentId, req.params.taskId); if (!task) { res.status(404).json({ ok: false, error: 'task_not_found' }); return; } res.json({ ok: true, task, working_log: agentIngestionStore.getWorkingLog(req.params.agentId, req.params.taskId) }); });
 app.post('/v1/agents/:agentId/tasks/:taskId/working-log', (req: Request, res: Response): void => { const parsed = WorkingLogSchema.safeParse(req.body); if (!parsed.success) { res.status(400).json({ ok: false, error: 'invalid_payload' }); return; } if (!agentRegistry.get(req.params.agentId)) { res.status(404).json({ ok: false, error: 'agent_not_found' }); return; } if (!agentKeyFor(req) || !agentRegistry.authorizeTelemetry(req.params.agentId, agentKeyFor(req))) { res.status(401).json({ ok: false, error: 'invalid_agent_key' }); return; } const result = agentIngestionStore.recordWorkingLog(req.params.agentId, req.params.taskId, parsed.data); res.status(result.accepted ? 201 : 200).json({ ok: true, ...result }); });
 
-app.get('/v1/xrpl/rlusd-analytics', async (_req: Request, res: Response): Promise<void> => {
-  try { res.json({ ok: true, source: 'live', snapshot: await xrplNativeService.refreshAnalytics() }); }
-  catch (error) { const snapshot = xrplNativeService.latestSnapshot(); if (snapshot) { res.json({ ok: true, source: 'stale', warning: error instanceof Error ? error.message : 'xrpl_refresh_failed', snapshot }); return; } res.status(503).json({ ok: false, error: 'xrpl_refresh_failed', message: error instanceof Error ? error.message : 'XRPL refresh failed' }); }
+app.post('/v1/agents/:agentId/settlements', (req: Request, res: Response): void => {
+  const parsed = AgentSettlementSyncSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: 'invalid_payload', details: parsed.error.issues });
+    return;
+  }
+  if (!agentRegistry.get(req.params.agentId)) {
+    res.status(404).json({ ok: false, error: 'agent_not_found' });
+    return;
+  }
+  const agentKey = agentKeyFor(req);
+  if (!agentKey || !agentRegistry.authorizeTelemetry(req.params.agentId, agentKey)) {
+    res.status(401).json({ ok: false, error: 'invalid_agent_key' });
+    return;
+  }
+  const rawStatus = parsed.data.status;
+  const normalizedStatus: 'settled' | 'pending' | 'failed' = rawStatus === 'validated' ? 'settled' : rawStatus;
+  const settlement = dreamState.recordSettlement({
+    ...parsed.data,
+    status: normalizedStatus,
+    openx_agent_id: req.params.agentId,
+  });
+  res.status(201).json({ ok: true, settlement });
+});
+
+app.delete('/v1/agents/:agentId/settlements/:txHashOrQuoteId', (req: Request, res: Response): void => {
+  if (!agentRegistry.get(req.params.agentId)) {
+    res.status(404).json({ ok: false, error: 'agent_not_found' });
+    return;
+  }
+  const agentKey = agentKeyFor(req);
+  if (!agentKey || !agentRegistry.authorizeTelemetry(req.params.agentId, agentKey)) {
+    res.status(401).json({ ok: false, error: 'invalid_agent_key' });
+    return;
+  }
+  const removed = dreamState.removeSettlement(req.params.txHashOrQuoteId);
+  res.json({ ok: true, removed });
 });
 app.get('/v1/agents/:agentId/wallet/profile', (req: Request, res: Response): void => { if (!agentRegistry.get(req.params.agentId)) { res.status(404).json({ ok: false, error: 'agent_not_found' }); return; } res.json({ ok: true, profile: xrplNativeService.profile(req.params.agentId), configured: nPaymentXrplWallet.isConfigured() }); });
 app.put('/v1/agents/:agentId/wallet/profile', (req: Request, res: Response): void => { const parsed = WalletProfileSchema.safeParse(req.body); if (!parsed.success) { res.status(400).json({ ok: false, error: 'invalid_payload' }); return; } if (!agentRegistry.get(req.params.agentId)) { res.status(404).json({ ok: false, error: 'agent_not_found' }); return; } if (!agentKeyFor(req) || !agentRegistry.authorizeTelemetry(req.params.agentId, agentKeyFor(req))) { res.status(401).json({ ok: false, error: 'invalid_agent_key' }); return; } const data = parsed.data; res.status(201).json({ ok: true, profile: xrplNativeService.createProfile(req.params.agentId, data.profile_id, data.address || null, { daily: data.daily_limit_rlusd, perTx: data.per_tx_limit_rlusd }) }); });
@@ -852,7 +899,11 @@ app.post('/v1/settlement/xrpl-testnet/verify', async (req: Request, res: Respons
  * Returns the history of settled XRPL RLUSD payments for transparency and tracking.
  */
 app.get('/v1/settlement/history', (req: Request, res: Response): void => {
-  const agentId = typeof req.query.agentId === 'string' ? req.query.agentId.trim() : undefined;
+  const agentId = typeof req.query.agent_id === 'string'
+    ? req.query.agent_id.trim()
+    : typeof req.query.agentId === 'string'
+    ? req.query.agentId.trim()
+    : undefined;
   const settlements = dreamState.listSettlements(agentId);
   res.json({
     ok: true,
@@ -998,20 +1049,20 @@ app.post('/v1/agents/:agentId/dream/trigger', async (req: Request, res: Response
         const verified = await xrplTestnetSettlement.verifyQuotePayment(receipt.transaction_hash, quote);
         if (!receipt.validated || !verified.verified || !dreamState.claimSettlement(quote.quote_id, receipt.transaction_hash)) {
           const reason = verified.reason || 'settlement_replay_or_unvalidated';
-          res.status(409).json({ ok: false, error: reason, run: dreamState.updateRun(run.id, { status: 'failed', settlement: { status: 'failed', quote_id: quote.quote_id, transaction_hash: receipt.transaction_hash, amount: quote.amount, currency: 'RLUSD', destination: quote.destination, attempted_at: new Date().toISOString(), reason } }) }); return;
+          res.status(409).json({ ok: false, error: reason, run: dreamState.updateRun(run.id, { status: 'failed', settlement: { status: 'failed', quote_id: quote.quote_id, transaction_hash: receipt.transaction_hash, amount: quote.amount, currency: 'RLUSD', destination: quote.destination, merchant_address: quote.destination, facilitator_node: process.env.OPENX_FACILITATOR_NODE || 'hypermove-gateway-relay', attempted_at: new Date().toISOString(), reason } }) }); return;
         }
         await hyperMove.call('payments.settle', { quoteId: quote.quote_id, proof: receipt.transaction_hash }, mcpTokenFor(req.params.agentId));
         const result = await hyperMove.call('start_dream', { agent_id: link.hypermove_agent_id, config: { budget_usd: parsed.data.budget_usd, preset: parsed.data.preset } }, mcpTokenFor(req.params.agentId), { 'x-payment': receipt.transaction_hash, 'x-payment-quote-id': quote.quote_id });
         const finished = result?.status === 'completed' || result?.status === 'partial';
         persistDreamLessons(req.params.agentId, run.id, result);
-        const settlement = { status: 'settled' as const, quote_id: quote.quote_id, transaction_hash: receipt.transaction_hash, amount: quote.amount, currency: 'RLUSD' as const, destination: quote.destination, attempted_at: new Date().toISOString() };
+        const settlement = { status: 'settled' as const, quote_id: quote.quote_id, transaction_hash: receipt.transaction_hash, amount: quote.amount, currency: 'RLUSD' as const, destination: quote.destination, merchant_address: quote.destination, facilitator_node: process.env.OPENX_FACILITATOR_NODE || 'hypermove-gateway-relay', attempted_at: new Date().toISOString() };
         const updated = dreamState.updateRun(run.id, { status: finished ? 'completed' : 'running', ...(finished ? { completed_at: new Date().toISOString() } : {}), settlement, result, learning_brief: learningBriefFrom(result) });
         queueDreamAudit(updated);
         if (updated?.status === 'running') scheduleDreamReconciliation(updated.id);
         res.status(202).json({ ok: true, run: updated }); return;
       } catch (settlementError) {
         const reason = settlementError instanceof Error ? settlementError.message : 'settlement_failed';
-        res.status(502).json({ ok: false, error: 'settlement_failed', message: reason, run: dreamState.updateRun(run.id, { status: 'failed', error: reason, settlement: { status: 'failed', quote_id: quote.quote_id, amount: quote.amount, currency: 'RLUSD', destination: quote.destination, attempted_at: new Date().toISOString(), reason } }) }); return;
+        res.status(502).json({ ok: false, error: 'settlement_failed', message: reason, run: dreamState.updateRun(run.id, { status: 'failed', error: reason, settlement: { status: 'failed', quote_id: quote.quote_id, amount: quote.amount, currency: 'RLUSD', destination: quote.destination, merchant_address: quote.destination, facilitator_node: process.env.OPENX_FACILITATOR_NODE || 'hypermove-gateway-relay', attempted_at: new Date().toISOString(), reason } }) }); return;
       }
     }
     dreamState.updateRun(run.id, { status: 'failed', error: error instanceof Error ? error.message : 'Dream request failed' }); respondMcpError(res, error);

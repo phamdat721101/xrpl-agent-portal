@@ -383,3 +383,43 @@ def request_gated_feed(feed_id: str) -> dict:
         "Phase 2 x402 payment flow is being wired. See gateway/ for the Node-side sidecar "
         f"(target URL: {_gateway_url()}/v1/supplier/defi?feedId={feed_id})."
     )
+
+
+def sync_settlement(
+    agent_id: str,
+    transaction_hash: str,
+    quote_id: str,
+    amount: str,
+    merchant_address: str,
+    facilitator_node: str,
+    currency: str = "RLUSD",
+    status: str = "settled",
+    run_id: Optional[str] = None,
+    settled_at: Optional[str] = None,
+    error_reason: Optional[str] = None,
+    timeout_seconds: float = 5.0,
+) -> Dict[str, Any]:
+    """Push an on-chain XRPL settlement transaction proof to the OpenX Gateway."""
+    payload: Dict[str, Any] = {
+        "transaction_hash": transaction_hash,
+        "quote_id": quote_id,
+        "amount": amount,
+        "currency": currency,
+        "merchant_address": merchant_address,
+        "facilitator_node": facilitator_node,
+        "status": status,
+    }
+    if run_id:
+        payload["run_id"] = run_id
+    if settled_at:
+        payload["settled_at"] = settled_at
+    if error_reason:
+        payload["error_reason"] = error_reason
+    return _post_json(
+        f"/v1/agents/{urllib.parse.quote(agent_id, safe='')}/settlements",
+        payload,
+        error_code="settlement_sync_failed",
+        timeout_seconds=timeout_seconds,
+        require_key=True,
+    )
+

@@ -142,7 +142,6 @@ export interface ClaimAgentInput { agent_id: string; agent_key: string; }
 export interface WalletSnapshot { address: string | null; chain_id: number; network: string; native_balance_wei: string | null; tokens: Array<{ address: string; symbol: string; decimals: number; balance: string }>; activity: Array<{ hash: string; timestamp: string | null; from: string; to: string | null; value: string }>; fetched_at: string; source_errors: string[]; }
 export interface StoredTaskRun { task_id: string; title: string | null; category: string | null; model: string; state: string; input_tokens: number; latency_ms: number; deliverable_markdown: string | null; deliverable_sha256: string | null; created_at: string; completed_at: string | null; }
 export interface WorkingLogEntry { event_id: string; sequence: number; phase: string; progress_pct: number | null; kind: 'started' | 'phase' | 'decision' | 'artifact' | 'error' | 'completed' | 'failed'; markdown: string; created_at: string; }
-export interface RlusdSnapshot { ledger_index: number; ledger_hash: string | null; evaluated_at: string; supply: { circulating: string | null; issuer: string | null }; movement: { amm: unknown; orderbook: unknown; settlements_24h: number }; trustlines: { lines: number | null }; source_errors: string[]; }
 export interface AuditRun { id: string; created_at: string; trigger: string; findings: Array<{ id: string; dimension: string; verdict: string; title: string; evidence: string[] }> }
 export interface DreamAuditJob { id: string; dream_run_id: string; status: 'queued' | 'reviewing' | 'completed' | 'retrying' | 'not_configured'; attempts: number; next_attempt_at: string | null; error?: string; review?: { model: string; lesson_reviews: Array<{ lesson_id: string; verdict: 'keep' | 'revise' | 'reject'; rationale: string; evidence: string[] }>; skill_candidate?: { skill_slug: string; display_name: string; capability_ids: string[]; rationale: string } }; }
 export interface AuditEvent { id: string; audit_job_id: string; agent_id: string; phase: 'queued' | 'gathering_evidence' | 'requesting_review' | 'validating' | 'persisting' | 'completed' | 'retrying' | 'failed' | 'not_configured'; message: string; created_at: string; }
@@ -266,7 +265,6 @@ export async function fetchRecentTelemetry(agentId?: string): Promise<IngestedTr
 
 export async function fetchStoredTasks(agentId: string): Promise<StoredTaskRun[]> { try { const res = await fetch(`${GATEWAY_URL}/v1/agents/${encodeURIComponent(agentId)}/tasks`, { signal: AbortSignal.timeout(5000) }); return res.ok ? ((await res.json()).tasks || []) : []; } catch { return []; } }
 export async function fetchStoredTask(agentId: string, taskId: string): Promise<{ task: StoredTaskRun; working_log: WorkingLogEntry[] } | null> { try { const res = await fetch(`${GATEWAY_URL}/v1/agents/${encodeURIComponent(agentId)}/tasks/${encodeURIComponent(taskId)}`, { signal: AbortSignal.timeout(5000), cache: 'no-store' }); return res.ok ? await res.json() : null; } catch { return null; } }
-export async function fetchRlusdAnalytics(): Promise<{ source: 'live' | 'stale'; warning?: string; snapshot: RlusdSnapshot } | null> { try { const res = await fetch(`${GATEWAY_URL}/v1/xrpl/rlusd-analytics`, { signal: AbortSignal.timeout(15000), cache: 'no-store' }); return res.ok ? await res.json() : null; } catch { return null; } }
 
 export async function fetchUsageSummaries(): Promise<UsageSummary[]> {
   try {
@@ -432,31 +430,72 @@ export async function revokeAgent(agentId: string, agentKey?: string): Promise<{
   }
 }
 
+export interface AgentSettlementTransaction {
+  quote_id: string;
+  transaction_hash?: string;
+  amount?: string;
+  currency: string;
+  destination?: string;
+  merchant_address?: string;
+  facilitator_node?: string;
+  status: 'settled' | 'pending' | 'failed';
+  settled_at?: string;
+  openx_agent_id: string;
+  run_id?: string;
+  source?: 'gateway_auto' | 'agent_sync';
+  error_reason?: string;
+}
+
 export async function fetchSettlementHistory(agentId?: string): Promise<{
   ok: boolean;
   network?: string;
   currency?: string;
   count?: number;
-  settlements?: Array<{
-    quote_id: string;
-    transaction_hash?: string;
-    amount?: string;
-    currency: string;
-    destination?: string;
-    settled_at?: string;
-    openx_agent_id: string;
-    run_id: string;
-  }>;
+  settlements?: AgentSettlementTransaction[];
   error?: string;
 }> {
   try {
     const url = new URL(`${GATEWAY_URL}/v1/settlement/history`);
-    if (agentId) url.searchParams.set('agentId', agentId);
+    if (agentId) {
+      url.searchParams.set('agent_id', agentId);
+      url.searchParams.set('agentId', agentId);
+    }
     const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
     const data = await res.json();
     return { ok: Boolean(data.ok), network: data.network, currency: data.currency, count: data.count, settlements: data.settlements, error: data.error };
   } catch (error: any) {
     return { ok: false, error: error.message || 'Gateway unavailable' };
+  }
+}
+
+export async function submitAgentSettlement(
+  agentId: string,
+  agentKey: string,
+  payload: {
+    transaction_hash: string;
+    quote_id: string;
+    amount: string;
+    currency?: string;
+    merchant_address: string;
+    facilitator_node: string;
+    status?: 'settled' | 'pending' | 'failed';
+    run_id?: string;
+    settled_at?: string;
+    error_reason?: string;
+  }
+): Promise<{ ok: boolean; settlement?: AgentSettlementTransaction; error?: string; message?: string }> {
+  try {
+    const res = await fetch(`${GATEWAY_URL}/v1/agents/${encodeURIComponent(agentId)}/settlements`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-agent-key': agentKey,
+      },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (error: any) {
+    return { ok: false, error: 'settlement_sync_failed', message: error.message || 'Gateway unreachable' };
   }
 }
 
